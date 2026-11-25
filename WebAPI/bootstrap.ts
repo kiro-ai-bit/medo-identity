@@ -31,7 +31,10 @@ import {
   type Metrics,
 } from "./Middleware/metrics.js";
 import { registerAuthRoutes } from "./Auth/routes.js";
+import { registerInternalRoutes } from "./Internal/routes.js";
 import { registerPlatformRoutes } from "./Platform/routes.js";
+import { createCareLinksClient } from "@infrastructure/Clients/careLinksClient.js";
+import { registerAuthCleanupJob } from "@application/Jobs/authCleanup.js";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
@@ -118,6 +121,11 @@ export interface BuiltApp {
   tokens: TokenService;
   metrics: Metrics;
   publisher?: PublisherHandle;
+  authCleanupRunOnce: () => Promise<{
+    purgedTokens: number;
+    purgedSessions: number;
+    purgedThrottle: number;
+  }>;
   close: () => Promise<void>;
 }
 
@@ -166,7 +174,12 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     tokens,
     appBaseUrl: config.appBaseUrl,
     metrics,
+    careLinks: createCareLinksClient({
+      baseUrl: config.careServiceUrl,
+      servicePrivateKeyJwk: config.servicePrivateKey,
+    }),
   });
+  registerInternalRoutes(app, { db: deps.db });
   registerPlatformRoutes(app, {
     db: deps.db,
     broker: deps.brokerQueryable,
@@ -190,12 +203,23 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
       })
     : undefined;
 
+  const authCleanup = registerAuthCleanupJob({
+    db: deps.db,
+    metrics,
+    reportError: (err) => {
+      app.log.error({ err }, "auth-cleanup tick failed");
+      Sentry.captureException(err);
+    },
+  });
+
   return {
     app,
     tokens,
     metrics,
     publisher,
+    authCleanupRunOnce: authCleanup.runOnce,
     close: async () => {
+      authCleanup.task.stop();
       if (publisher) await publisher.stop();
       await app.close();
     },

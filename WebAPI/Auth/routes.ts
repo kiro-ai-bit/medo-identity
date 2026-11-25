@@ -37,6 +37,8 @@ import { signup } from "@core/Account/signup.js";
 import { resendVerification, verifyEmail } from "@core/Account/verify.js";
 import { getOwnProfile, updateOwnProfile } from "@core/Account/profile.js";
 import { forgotPassword, resetPassword } from "@core/Session/passwordReset.js";
+import { deleteAccount } from "@application/DeletionWorkflow/deleteAccount.js";
+import type { CareLinksClient } from "@infrastructure/Clients/careLinksClient.js";
 import type { Role } from "@core/types.js";
 import type { Db } from "@infrastructure/Persistence/db.js";
 import type { TokenService } from "@core/Session/jwt.js";
@@ -51,6 +53,7 @@ export interface AuthRoutesDeps {
   tokens: TokenService;
   appBaseUrl: string;
   metrics: Metrics;
+  careLinks: CareLinksClient;
 }
 
 function setRefreshCookie(reply: FastifyReply, rawToken: string): void {
@@ -279,6 +282,26 @@ export function registerAuthRoutes(
       deps.metrics.incr("medo_identity_session_revocations_total", {
         reason: "logout",
       });
+      clearRefreshCookie(reply);
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete(
+    "/v1/me",
+    { config: { auth: "user", rateLimit: "write" } },
+    async (request, reply) => {
+      const user = request.user;
+      if (!user) throw new AuthError(401, "UNAUTHORIZED", "unauthenticated");
+      const result = await deleteAccount(deps.db, user.sub, {
+        careLinks: deps.careLinks,
+        metrics: deps.metrics,
+      });
+      deps.metrics.incr(
+        "medo_identity_session_revocations_total",
+        { reason: "delete" },
+        result.revokedSessions,
+      );
       clearRefreshCookie(reply);
       return reply.code(204).send();
     },

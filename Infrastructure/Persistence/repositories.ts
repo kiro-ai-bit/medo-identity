@@ -69,6 +69,17 @@ export function createUsersRepo(db: Db) {
         .set({ passwordHash: hash, updatedAt: new Date() })
         .where(eq(users.id, id));
     },
+    // auth_sessions + auth_tokens cascade via FK; auth_throttle has no user FK —
+    // explicit delete by subject hash (forgot-password scope subject = sha256(email)).
+    async deleteWithDependents(
+      id: string,
+      throttleSubjectHash: string,
+    ): Promise<void> {
+      await db.execute(
+        sql`DELETE FROM auth_throttle WHERE subject_hash = ${throttleSubjectHash}`,
+      );
+      await db.delete(users).where(eq(users.id, id));
+    },
   };
 }
 
@@ -146,11 +157,21 @@ export function createSessionsRepo(db: Db) {
         .returning({ id: authSessions.id });
       return rows.length;
     },
-    async deleteExpiredOrRevoked(before: Date): Promise<number> {
+    async countForUser(userId: string): Promise<number> {
+      const rows = await db
+        .select({ id: authSessions.id })
+        .from(authSessions)
+        .where(eq(authSessions.userId, userId));
+      return rows.length;
+    },
+    async deleteExpiredOrRevoked(
+      expiredBefore: Date,
+      revokedBefore: Date,
+    ): Promise<number> {
       const rows = await db
         .delete(authSessions)
         .where(
-          sql`${authSessions.expiresAt} <= ${before} OR (${authSessions.revokedAt} IS NOT NULL AND ${authSessions.revokedAt} < ${before})`,
+          sql`${authSessions.expiresAt} <= ${expiredBefore} OR (${authSessions.revokedAt} IS NOT NULL AND ${authSessions.revokedAt} < ${revokedBefore})`,
         )
         .returning({ id: authSessions.id });
       return rows.length;
@@ -183,11 +204,14 @@ export function createAuthTokensRepo(db: Db) {
         .returning();
       return rows[0] ?? null;
     },
-    async deleteExpiredOrConsumed(before: Date): Promise<number> {
+    async deleteExpiredOrConsumed(
+      expiredBefore: Date,
+      consumedBefore: Date,
+    ): Promise<number> {
       const rows = await db
         .delete(authTokens)
         .where(
-          sql`${authTokens.expiresAt} <= ${before} OR (${authTokens.consumedAt} IS NOT NULL AND ${authTokens.consumedAt} < ${before})`,
+          sql`${authTokens.expiresAt} <= ${expiredBefore} OR (${authTokens.consumedAt} IS NOT NULL AND ${authTokens.consumedAt} < ${consumedBefore})`,
         )
         .returning({ id: authTokens.id });
       return rows.length;
@@ -253,11 +277,14 @@ export function createThrottleRepo(db: Db) {
           ),
         );
     },
-    async deleteExpired(before: Date): Promise<number> {
+    async deleteExpired(
+      cooldownBefore: Date,
+      staleUpdatedBefore: Date,
+    ): Promise<number> {
       const rows = await db
         .delete(authThrottle)
         .where(
-          sql`(${authThrottle.cooldownUntil} IS NOT NULL AND ${authThrottle.cooldownUntil} < ${before}) OR (${authThrottle.cooldownUntil} IS NULL AND ${authThrottle.updatedAt} < ${before})`,
+          sql`(${authThrottle.cooldownUntil} IS NOT NULL AND ${authThrottle.cooldownUntil} < ${cooldownBefore}) OR (${authThrottle.cooldownUntil} IS NULL AND ${authThrottle.updatedAt} < ${staleUpdatedBefore})`,
         )
         .returning({ id: authThrottle.id });
       return rows.length;
