@@ -78,3 +78,48 @@ export async function resetLoginThrottle(
   const repo = createThrottleRepo(db as Db);
   await repo.delete("login", loginSubjectHash(email, ip));
 }
+
+const FORGOT_WINDOW_MS = 60 * 60 * 1000;
+const FORGOT_MAX_REQUESTS = 2;
+
+function forgotSubjectHash(email: string): string {
+  return createHash("sha256").update(email).digest("hex");
+}
+
+function pruneRequestTimes(times: unknown, now: Date): number[] {
+  const cutoff = now.getTime() - FORGOT_WINDOW_MS;
+  if (!Array.isArray(times)) return [];
+  return times
+    .map((t) => (typeof t === "string" ? Date.parse(t) : NaN))
+    .filter((ms) => Number.isFinite(ms) && ms > cutoff)
+    .map((ms) => ms);
+}
+
+export async function checkForgotWindow(
+  db: Db | DbTx,
+  email: string,
+  now = new Date(),
+): Promise<boolean> {
+  const repo = createThrottleRepo(db as Db);
+  const row = await repo.get("forgot-password", forgotSubjectHash(email));
+  if (!row) return true;
+  return pruneRequestTimes(row.requestTimes, now).length < FORGOT_MAX_REQUESTS;
+}
+
+export async function recordForgotRequest(
+  db: Db | DbTx,
+  email: string,
+  now = new Date(),
+): Promise<void> {
+  const repo = createThrottleRepo(db as Db);
+  const subjectHash = forgotSubjectHash(email);
+  const row = await repo.get("forgot-password", subjectHash);
+  const times = pruneRequestTimes(row?.requestTimes, now);
+  times.push(now.getTime());
+  const iso = times.map((ms) => new Date(ms).toISOString());
+  await repo.upsert("forgot-password", subjectHash, {
+    requestTimes: iso,
+    requestCount: iso.length,
+    updatedAt: now,
+  });
+}

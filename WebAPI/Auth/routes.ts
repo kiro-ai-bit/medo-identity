@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
+  ForgotPasswordRequestSchema,
+  ForgotPasswordResponseSchema,
   LoginRequestSchema,
   LoginResponseSchema,
   MeDtoSchema,
@@ -7,9 +9,12 @@ import {
   RefreshResponseSchema,
   ResendVerificationRequestSchema,
   ResendVerificationResponseSchema,
+  ResetPasswordRequestSchema,
   SignupRequestSchema,
   SignupResponseSchema,
   VerifyEmailRequestSchema,
+  type ForgotPasswordRequest,
+  type ForgotPasswordResponse,
   type LoginRequest,
   type LoginResponse,
   type MeDto,
@@ -17,6 +22,7 @@ import {
   type RefreshResponse,
   type ResendVerificationRequest,
   type ResendVerificationResponse,
+  type ResetPasswordRequest,
   type SignupRequest,
   type SignupResponse,
   type VerifyEmailRequest,
@@ -30,6 +36,7 @@ import {
 import { signup } from "@core/Account/signup.js";
 import { resendVerification, verifyEmail } from "@core/Account/verify.js";
 import { getOwnProfile, updateOwnProfile } from "@core/Account/profile.js";
+import { forgotPassword, resetPassword } from "@core/Session/passwordReset.js";
 import type { Role } from "@core/types.js";
 import type { Db } from "@infrastructure/Persistence/db.js";
 import type { TokenService } from "@core/Session/jwt.js";
@@ -220,6 +227,43 @@ export function registerAuthRoutes(
         timezone: body.timezone,
       });
       return out;
+    },
+  );
+
+  app.post(
+    "/v1/auth/forgot-password",
+    {
+      config: { rateLimit: "public" },
+      schema: {
+        body: ForgotPasswordRequestSchema,
+        response: { 202: ForgotPasswordResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as ForgotPasswordRequest;
+      await forgotPassword(deps.db, body.email, {
+        appBaseUrl: deps.appBaseUrl,
+      });
+      const out: ForgotPasswordResponse = { accepted: true };
+      return reply.code(202).send(out);
+    },
+  );
+
+  app.post(
+    "/v1/auth/reset-password",
+    {
+      config: { rateLimit: "public" },
+      schema: { body: ResetPasswordRequestSchema },
+    },
+    async (request, reply) => {
+      const body = request.body as ResetPasswordRequest;
+      const result = await resetPassword(deps.db, body.token, body.password);
+      deps.metrics.incr(
+        "medo_identity_session_revocations_total",
+        { reason: "reset" },
+        result.revokedSessions,
+      );
+      return reply.code(204).send();
     },
   );
 
