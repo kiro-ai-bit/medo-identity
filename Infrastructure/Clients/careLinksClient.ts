@@ -10,6 +10,8 @@ export interface CareLinksClient {
 }
 
 const SERVICE_TOKEN_TTL_SEC = 5 * 60;
+const REQUEST_TIMEOUT_MS = 3000;
+const RETRY_DELAY_MS = 200;
 
 export function createCareLinksClient(deps: {
   baseUrl: string;
@@ -17,7 +19,7 @@ export function createCareLinksClient(deps: {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): CareLinksClient {
-  const timeoutMs = deps.timeoutMs ?? 3000;
+  const timeoutMs = deps.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const alg = (deps.servicePrivateKeyJwk.alg as string | undefined) ?? "ES256";
   let privateKey: CryptoKey | null = null;
 
@@ -66,24 +68,18 @@ export function createCareLinksClient(deps: {
           lastErr = err;
           res = null;
         }
-        if (i === 0) await new Promise((r) => setTimeout(r, 200));
+        if (i === 0) await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       }
       if (!res || !res.ok) {
         throw lastErr instanceof Error
           ? lastErr
           : new Error("care links check failed");
       }
-      const body = (await res.json()) as {
-        activeCount?: unknown;
-        links?: { status?: unknown }[];
-      };
-      if (typeof body.activeCount === "number") {
-        return { activeCount: body.activeCount };
+      const body = (await res.json()) as { activeCount?: unknown };
+      if (typeof body.activeCount !== "number") {
+        throw new Error("care links check malformed response");
       }
-      const links = Array.isArray(body.links) ? body.links : [];
-      return {
-        activeCount: links.filter((l) => l.status === "active").length,
-      };
+      return { activeCount: body.activeCount };
     },
   };
 }

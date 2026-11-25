@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { appendOutbox } from "@infrastructure/Persistence/outbox.js";
 import {
   txRunner,
@@ -11,6 +10,7 @@ import {
 } from "@infrastructure/Persistence/repositories.js";
 import type { CareLinksClient } from "@infrastructure/Clients/careLinksClient.js";
 import type { Metrics } from "@core/metrics.js";
+import { forgotSubjectHash } from "@core/Throttle/throttle.js";
 import { ConflictError, DependencyError, NotFoundError } from "@core/errors.js";
 
 export interface DeleteAccountDeps {
@@ -46,9 +46,7 @@ export async function deleteAccount(
   }
 
   const revokedSessions = await createSessionsRepo(db).countForUser(userId);
-  const throttleSubjectHash = createHash("sha256")
-    .update(user.email)
-    .digest("hex");
+  const throttleSubjectHash = forgotSubjectHash(user.email);
 
   await txRunner(db, async (tx: DbTx) => {
     const tUsers = createUsersRepo(tx as unknown as Db);

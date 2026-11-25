@@ -86,7 +86,7 @@ export async function resetLoginThrottle(
 const FORGOT_WINDOW_MS = 60 * 60 * 1000;
 const FORGOT_MAX_REQUESTS = 2;
 
-function forgotSubjectHash(email: string): string {
+export function forgotSubjectHash(email: string): string {
   return createHash("sha256").update(email).digest("hex");
 }
 
