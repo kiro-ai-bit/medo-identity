@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { sql } from "drizzle-orm";
 import { appendOutbox } from "@infrastructure/Persistence/outbox.js";
 import {
   txRunner,
@@ -27,6 +29,11 @@ export async function forgotPassword(
   const normalized = normalizeEmail(email);
   const now = new Date();
   await txRunner(db, async (tx: DbTx) => {
+    // Serialize the check-then-record window per email for the tx lifetime.
+    const subjectHash = createHash("sha256").update(normalized).digest("hex");
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${subjectHash}))`,
+    );
     if (!(await checkForgotWindow(tx, normalized, now))) return;
     const usersRepo = createUsersRepo(tx as unknown as Db);
     const user = await usersRepo.findByEmail(normalized);

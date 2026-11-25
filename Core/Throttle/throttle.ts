@@ -67,7 +67,11 @@ export async function recordLoginFailure(
     cooldownUntil,
     updatedAt: now,
   });
-  return { cooldownActivated: activate && !row.cooldownUntil };
+  return {
+    cooldownActivated:
+      activate &&
+      !(row.cooldownUntil && row.cooldownUntil.getTime() > now.getTime()),
+  };
 }
 
 export async function resetLoginThrottle(

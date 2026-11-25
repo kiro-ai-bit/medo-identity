@@ -84,7 +84,7 @@ describe("POST /v1/auth/forgot-password", () => {
   });
 
   it("issues password-reset token + PasswordResetRequested for registered email", async () => {
-    const { userId, email } = await signupVerified("forgot-ok@example.com");
+    const { userId } = await signupVerified("forgot-ok@example.com");
 
     const res = await t.app.inject({
       method: "POST",
@@ -98,7 +98,6 @@ describe("POST /v1/auth/forgot-password", () => {
     expect(link).toContain("https://app.test/reset-password?token=");
     expect(await resetTokenCount(userId)).toBe(1);
     expect(await outboxCount("PasswordResetRequested", userId)).toBe(1);
-    void email;
   });
 
   it("silently accepts a third request inside the 1h window", async () => {

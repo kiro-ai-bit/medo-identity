@@ -282,6 +282,40 @@ describe("login", () => {
     expect(blocked.json().error.code).toBe("RATE_LIMITED");
     expect(blocked.headers["retry-after"]).toBeTruthy();
   });
+
+  it("allows login again after cooldown expiry", async () => {
+    const body = signupBody({ email: "cooldown-expiry@example.com" });
+    await t.app.inject({
+      method: "POST",
+      url: "/v1/auth/signup",
+      payload: body,
+    });
+    await markEmailVerified(t.servicePg, body.email);
+    for (let i = 0; i < 3; i++) {
+      await t.app.inject({
+        method: "POST",
+        url: "/v1/auth/login",
+        payload: { email: body.email, password: "bad-password" },
+      });
+    }
+    const blocked = await t.app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: { email: body.email, password: body.password },
+    });
+    expect(blocked.statusCode).toBe(429);
+
+    await t.servicePg.query(
+      `UPDATE auth_throttle SET cooldown_until = now() - interval '1 minute'
+       WHERE scope = 'login'`,
+    );
+    const after = await t.app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: { email: body.email, password: body.password },
+    });
+    expect(after.statusCode).toBe(200);
+  });
 });
 
 describe("refresh rotation + reuse detection", () => {
