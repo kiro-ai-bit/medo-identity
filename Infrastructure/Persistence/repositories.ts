@@ -40,6 +40,23 @@ export function createUsersRepo(db: Db) {
       const rows = await db.insert(users).values(user).returning();
       return rows[0];
     },
+    async updateProfile(
+      id: string,
+      patch: { displayName?: string; timezone?: string },
+    ): Promise<UserRow | null> {
+      const set: { displayName?: string; timezone?: string; updatedAt: Date } =
+        {
+          updatedAt: new Date(),
+        };
+      if (patch.displayName !== undefined) set.displayName = patch.displayName;
+      if (patch.timezone !== undefined) set.timezone = patch.timezone;
+      const rows = await db
+        .update(users)
+        .set(set)
+        .where(eq(users.id, id))
+        .returning();
+      return rows[0] ?? null;
+    },
     async setEmailVerified(id: string): Promise<void> {
       await db
         .update(users)

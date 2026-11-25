@@ -2,14 +2,24 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   LoginRequestSchema,
   LoginResponseSchema,
+  MeDtoSchema,
+  PatchMeRequestSchema,
   RefreshResponseSchema,
+  ResendVerificationRequestSchema,
+  ResendVerificationResponseSchema,
   SignupRequestSchema,
   SignupResponseSchema,
+  VerifyEmailRequestSchema,
   type LoginRequest,
   type LoginResponse,
+  type MeDto,
+  type PatchMeRequest,
   type RefreshResponse,
+  type ResendVerificationRequest,
+  type ResendVerificationResponse,
   type SignupRequest,
   type SignupResponse,
+  type VerifyEmailRequest,
 } from "@kiro-ai-bit/contracts";
 import {
   login,
@@ -18,6 +28,8 @@ import {
   rotateRefresh,
 } from "@core/Session/session.js";
 import { signup } from "@core/Account/signup.js";
+import { resendVerification, verifyEmail } from "@core/Account/verify.js";
+import { getOwnProfile, updateOwnProfile } from "@core/Account/profile.js";
 import type { Role } from "@core/types.js";
 import type { Db } from "@infrastructure/Persistence/db.js";
 import type { TokenService } from "@core/Session/jwt.js";
@@ -142,6 +154,72 @@ export function registerAuthRoutes(
       });
       setRefreshCookie(reply, result.rawRefresh);
       return reply.code(200).send(sessionBody(result));
+    },
+  );
+
+  app.post(
+    "/v1/auth/verify-email",
+    {
+      config: { rateLimit: "public" },
+      schema: { body: VerifyEmailRequestSchema },
+    },
+    async (request, reply) => {
+      const body = request.body as VerifyEmailRequest;
+      await verifyEmail(deps.db, body.token);
+      return reply.code(204).send();
+    },
+  );
+
+  app.post(
+    "/v1/auth/resend-verification",
+    {
+      config: { rateLimit: "public" },
+      schema: {
+        body: ResendVerificationRequestSchema,
+        response: { 202: ResendVerificationResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as ResendVerificationRequest;
+      await resendVerification(deps.db, body.email, {
+        appBaseUrl: deps.appBaseUrl,
+      });
+      const out: ResendVerificationResponse = { accepted: true };
+      return reply.code(202).send(out);
+    },
+  );
+
+  app.get(
+    "/v1/me",
+    {
+      config: { auth: "user", rateLimit: "read" },
+      schema: { response: { 200: MeDtoSchema } },
+    },
+    async (request) => {
+      const user = request.user;
+      if (!user) throw new AuthError(401, "UNAUTHORIZED", "unauthenticated");
+      return getOwnProfile(deps.db, user.sub);
+    },
+  );
+
+  app.patch(
+    "/v1/me",
+    {
+      config: { auth: "user", rateLimit: "write" },
+      schema: {
+        body: PatchMeRequestSchema,
+        response: { 200: MeDtoSchema },
+      },
+    },
+    async (request) => {
+      const user = request.user;
+      if (!user) throw new AuthError(401, "UNAUTHORIZED", "unauthenticated");
+      const body = request.body as PatchMeRequest;
+      const out: MeDto = await updateOwnProfile(deps.db, user.sub, {
+        displayName: body.displayName,
+        timezone: body.timezone,
+      });
+      return out;
     },
   );
 
