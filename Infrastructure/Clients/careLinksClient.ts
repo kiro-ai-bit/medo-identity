@@ -75,11 +75,13 @@ export function createCareLinksClient(deps: {
           ? lastErr
           : new Error("care links check failed");
       }
-      const body = (await res.json()) as { activeCount?: unknown };
-      if (typeof body.activeCount !== "number") {
+      // Care internal route returns { links: [{linkId, caregiverId}] } —
+      // active links only, so length IS the active count (LD-ID-10).
+      const body = (await res.json()) as { links?: unknown };
+      if (!Array.isArray(body.links)) {
         throw new Error("care links check malformed response");
       }
-      return { activeCount: body.activeCount };
+      return { activeCount: body.links.length };
     },
   };
 }
