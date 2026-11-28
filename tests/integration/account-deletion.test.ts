@@ -19,8 +19,10 @@ function stubCare(activeCount: number | "down") {
     if (activeCount === "down") throw new Error("connect ECONNREFUSED");
     return new Response(
       JSON.stringify({
-        links: [],
-        activeCount,
+        links: Array.from({ length: activeCount }, (_, i) => ({
+          linkId: `link-${i}`,
+          caregiverId: `cg-${i}`,
+        })),
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
